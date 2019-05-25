@@ -1,0 +1,9 @@
+syntax: glob
+.vs/*
+Debug/*
+NH/obj/*
+Poly1305/obj/*
+*.user
+test/NH.Test/obj/*
+test/Poly1305.Test/obj/*
+test/Benchmark/obj/*
