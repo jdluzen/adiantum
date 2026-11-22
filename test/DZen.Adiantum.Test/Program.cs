@@ -1,0 +1,110 @@
+using DZen.Adiantum.Internal;
+using System;
+using System.Buffers.Binary;
+using System.Text.Json;
+
+namespace DZen.Adiantum.Test;
+
+internal static class Program
+{
+    private static void Main()
+    {
+        TestNh();
+        TestPoly1305();
+        TestXChaCha();
+        TestAdiantum();
+        Console.WriteLine("Reference scalar vectors passed.");
+    }
+
+    private static void TestNh()
+    {
+        using JsonDocument document = JsonDocument.Parse(System.IO.File.ReadAllText(
+            System.IO.Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "test_vectors", "NH", "NH.json")));
+        foreach (JsonElement vector in document.RootElement.EnumerateArray())
+        {
+            byte[] key = Convert.FromHexString(vector.GetProperty("input").GetProperty("key_hex").GetString()!);
+            byte[] message = Convert.FromHexString(vector.GetProperty("input").GetProperty("message_hex").GetString()!);
+            byte[] expected = Convert.FromHexString(vector.GetProperty("hash_hex").GetString()!);
+            byte[] actual = new byte[32];
+            Nh.Hash(key, message, actual);
+            byte[] legacy = new NH.Nh(key).ComputeHash(message);
+            string description = vector.GetProperty("description").GetString()!;
+            if (!legacy.AsSpan().SequenceEqual(expected))
+                throw new InvalidOperationException($"Legacy NH vector failed: {description}");
+            if (!actual.AsSpan().SequenceEqual(expected))
+                throw new InvalidOperationException($"NH vector failed: description={description}, expected={Convert.ToHexString(expected).ToLowerInvariant()}, modern={Convert.ToHexString(actual).ToLowerInvariant()}, legacy={Convert.ToHexString(legacy).ToLowerInvariant()}");
+        }
+    }
+
+    private static void TestPoly1305()
+    {
+        using JsonDocument document = JsonDocument.Parse(System.IO.File.ReadAllText(
+            System.IO.Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "test_vectors", "Poly1305", "Poly1305.json")));
+        foreach (JsonElement vector in document.RootElement.EnumerateArray())
+        {
+            byte[] key = Convert.FromHexString(vector.GetProperty("input").GetProperty("key_hex").GetString()!);
+            byte[] message = Convert.FromHexString(vector.GetProperty("input").GetProperty("message_hex").GetString()!);
+            byte[] expected = Convert.FromHexString(vector.GetProperty("mac_hex").GetString()!);
+            byte[] mask = Convert.FromHexString(vector.GetProperty("input").GetProperty("mask_hex").GetString()!);
+            byte[] actual = new byte[16];
+            Poly1305.Process(key, message, actual);
+            ulong low = BinaryPrimitives.ReadUInt64LittleEndian(actual);
+            ulong high = BinaryPrimitives.ReadUInt64LittleEndian(actual.AsSpan(8));
+            ulong maskLow = BinaryPrimitives.ReadUInt64LittleEndian(mask);
+            ulong maskHigh = BinaryPrimitives.ReadUInt64LittleEndian(mask.AsSpan(8));
+            ulong sumLow = unchecked(low + maskLow);
+            ulong carry = sumLow < low ? 1UL : 0UL;
+            ulong sumHigh = unchecked(high + maskHigh + carry);
+            BinaryPrimitives.WriteUInt64LittleEndian(actual, sumLow);
+            BinaryPrimitives.WriteUInt64LittleEndian(actual.AsSpan(8), sumHigh);
+            if (!actual.AsSpan().SequenceEqual(expected))
+                throw new InvalidOperationException($"Poly1305 vector failed: {vector.GetProperty("description").GetString()}");
+        }
+    }
+
+    private static void TestXChaCha()
+    {
+        using JsonDocument document = JsonDocument.Parse(System.IO.File.ReadAllText(
+            System.IO.Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "test_vectors", "XChaCha", "XChaCha12_32.json")));
+        foreach (JsonElement vector in document.RootElement.EnumerateArray())
+        {
+            byte[] key = Convert.FromHexString(vector.GetProperty("input").GetProperty("key_hex").GetString()!);
+            byte[] nonce = Convert.FromHexString(vector.GetProperty("input").GetProperty("nonce_hex").GetString()!);
+            foreach (JsonElement test in vector.GetProperty("tests").EnumerateArray())
+            {
+                ulong offset = test.GetProperty("input").GetProperty("offset").GetUInt64();
+                byte[] expected = Convert.FromHexString(test.GetProperty("result_hex").GetString()!);
+                byte[] actual = new byte[64];
+                XChaCha12.Crypt(key, nonce, actual, offset);
+                if (!actual.AsSpan().SequenceEqual(expected))
+                    throw new InvalidOperationException($"XChaCha12 vector failed at offset {offset}");
+            }
+        }
+    }
+
+    private static void TestAdiantum()
+    {
+        using JsonDocument document = JsonDocument.Parse(System.IO.File.ReadAllText(
+            System.IO.Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "test_vectors", "Adiantum", "Adiantum_XChaCha12_32_AES256.json")));
+        foreach (JsonElement vector in document.RootElement.EnumerateArray())
+        {
+            byte[] key = Convert.FromHexString(vector.GetProperty("input").GetProperty("key_hex").GetString()!);
+            byte[] tweak = Convert.FromHexString(vector.GetProperty("input").GetProperty("tweak_hex").GetString()!);
+            byte[] plaintext = Convert.FromHexString(vector.GetProperty("plaintext_hex").GetString()!);
+            byte[] expected = Convert.FromHexString(vector.GetProperty("ciphertext_hex").GetString()!);
+
+            using DZen.Adiantum.Adiantum cipher = new(key);
+            byte[] encrypted = (byte[])plaintext.Clone();
+            cipher.Encrypt(encrypted, tweak);
+            if (!encrypted.AsSpan().SequenceEqual(expected))
+            {
+                throw new InvalidOperationException(
+                    $"Adiantum vector failed: length={plaintext.Length}, tweak={tweak.Length}, description={vector.GetProperty("description").GetString()}, expected={Convert.ToHexString(expected).ToLowerInvariant()}, actual={Convert.ToHexString(encrypted).ToLowerInvariant()}");
+            }
+
+            cipher.Decrypt(encrypted, tweak);
+            if (!encrypted.AsSpan().SequenceEqual(plaintext))
+                throw new InvalidOperationException("Adiantum round trip failed.");
+        }
+    }
+}

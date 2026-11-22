@@ -11,17 +11,17 @@ namespace Poly1305.Test
     {
         [Theory]
         [InlineData("other.json")]
-        //[InlineData("Poly1305.json")]
+        [InlineData("Poly1305.json")]
         public void Poly1305(string filename)
         {
             var testvects = JsonConvert.DeserializeObject<TestVector[]>(File.ReadAllText($"..\\..\\..\\{filename}"));
 
-            foreach (var vect in testvects.Skip(2))
+            foreach (var vect in testvects)
             {
-                Poly1305 p1305 = new Poly1305(FromHexString(vect.Input.KeyHex));
-
-                byte[] hash = p1305.ComputeHash(FromHexString(vect.Input.MessageHex));
-
+                byte[] hash = global::Poly1305.Poly1305.Compute(
+                    FromHexString(vect.Input.KeyHex),
+                    FromHexString(vect.Input.MessageHex),
+                    FromHexString(vect.Input.MaskHex));
                 hash.Should().BeEquivalentTo(FromHexString(vect.MacHex));
             }
         }
