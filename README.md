@@ -3,7 +3,7 @@
 A pure managed C# implementation of **Adiantum**, Google's length-preserving,
 tweakable encryption construction for data such as storage sectors. It uses
 XChaCha12, AES-256, NH, and Poly1305, with a portable scalar path and
-AVX2 acceleration for NH on supported x86/x64 processors.
+SSE2, AVX2, and AVX-512F acceleration for NH on supported x86/x64 processors.
 
 [![NuGet](https://img.shields.io/nuget/v/DZen.Adiantum)](https://www.nuget.org/packages/DZen.Adiantum)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -35,7 +35,7 @@ deferred; all platforms retain a scalar NH fallback.
 
 ## Hardware acceleration
 
-NH uses runtime AVX2 detection to process multiple 32-bit message words in
+NH uses runtime CPU detection to process multiple 32-bit message words in
 parallel. It selects AVX-512F, AVX2, or SSE2 when supported, then falls back
 to scalar code. The SIMD implementations use safe .NET intrinsics. Poly1305
 and XChaCha12 remain scalar in this release. ARM64 AdvSimd/NEON is deferred.

@@ -8,15 +8,22 @@
     <AssemblyName>DZen.Adiantum</AssemblyName>
     <RootNamespace>DZen.Adiantum</RootNamespace>
     <Title>DZen.Adiantum</Title>
-    <Authors>jdluzen</Authors>
+    <Authors>Joe Dluzen</Authors>
     <Description>Pure managed C# implementation of the Adiantum length-preserving encryption construction.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryUrl>https://github.com/jdluzen/adiantum</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <DebugType>portable</DebugType>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="10.0.404" PrivateAssets="All" />
     <None Include="..\README.md" Pack="true" PackagePath="\" />
     <None Include="..\THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="\" />
   </ItemGroup>
