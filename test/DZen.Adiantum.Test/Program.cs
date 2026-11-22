@@ -10,10 +10,14 @@ internal static class Program
     private static void Main()
     {
         TestNh();
+        string[] simdPaths = TestNhVectorized();
         TestPoly1305();
         TestXChaCha();
         TestAdiantum();
-        Console.WriteLine("Reference scalar vectors passed.");
+        string simdResult = simdPaths.Length == 0
+            ? "no x86 SIMD paths were available"
+            : $"NH SIMD comparisons passed for: {string.Join(", ", simdPaths)}";
+        Console.WriteLine($"Reference vectors passed; {simdResult}.");
     }
 
     private static void TestNh()
@@ -34,6 +38,50 @@ internal static class Program
             if (!actual.AsSpan().SequenceEqual(expected))
                 throw new InvalidOperationException($"NH vector failed: description={description}, expected={Convert.ToHexString(expected).ToLowerInvariant()}, modern={Convert.ToHexString(actual).ToLowerInvariant()}, legacy={Convert.ToHexString(legacy).ToLowerInvariant()}");
         }
+    }
+
+    private static string[] TestNhVectorized()
+    {
+        byte[] key = new byte[Nh.KeyBytes];
+        byte[] message = new byte[Nh.MessageBytes];
+        byte[] scalar = new byte[Nh.HashBytes];
+        Random random = new(0x4E48);
+        System.Collections.Generic.List<string> testedPaths = new();
+        random.NextBytes(key);
+
+        for (int length = Nh.MessageUnit; length <= Nh.MessageBytes; length += Nh.MessageUnit)
+        {
+            random.NextBytes(message.AsSpan(0, length));
+            Nh.HashScalar(key, message.AsSpan(0, length), scalar);
+
+            if (System.Runtime.Intrinsics.X86.Sse2.IsSupported)
+                VerifyNhPath("SSE2", Nh.HashSse2, key, message, length, scalar, testedPaths);
+            if (System.Runtime.Intrinsics.X86.Avx2.IsSupported)
+                VerifyNhPath("AVX2", Nh.HashAvx2, key, message, length, scalar, testedPaths);
+            if (System.Runtime.Intrinsics.X86.Avx512F.IsSupported)
+                VerifyNhPath("AVX-512F", Nh.HashAvx512, key, message, length, scalar, testedPaths);
+        }
+
+        return testedPaths.ToArray();
+    }
+
+    private delegate void NhHash(ReadOnlySpan<byte> key, ReadOnlySpan<byte> message, Span<byte> output);
+
+    private static void VerifyNhPath(
+        string pathName,
+        NhHash hash,
+        byte[] key,
+        byte[] message,
+        int length,
+        byte[] scalar,
+        System.Collections.Generic.List<string> testedPaths)
+    {
+        byte[] vectorized = new byte[Nh.HashBytes];
+        hash(key, message.AsSpan(0, length), vectorized);
+        if (!scalar.AsSpan().SequenceEqual(vectorized))
+            throw new InvalidOperationException($"NH scalar/{pathName} mismatch at {length} bytes.");
+        if (!testedPaths.Contains(pathName))
+            testedPaths.Add(pathName);
     }
 
     private static void TestPoly1305()

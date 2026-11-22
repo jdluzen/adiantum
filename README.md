@@ -1,9 +1,9 @@
 # DZen.Adiantum
 
 A pure managed C# implementation of **Adiantum**, Google's length-preserving,
-tweakable encryption construction for data such as storage sectors. This
-project currently focuses on a portable **scalar implementation** using
-XChaCha12, AES-256, NH, and Poly1305.
+tweakable encryption construction for data such as storage sectors. It uses
+XChaCha12, AES-256, NH, and Poly1305, with a portable scalar path and
+AVX2 acceleration for NH on supported x86/x64 processors.
 
 [![NuGet](https://img.shields.io/nuget/v/DZen.Adiantum)](https://www.nuget.org/packages/DZen.Adiantum)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -23,13 +23,31 @@ The implementation provides:
 
 - In-place encryption and decryption over `Span<byte>`.
 - A caller-supplied tweak, with no nonce or metadata added to the data.
-- Managed NH, Poly1305, and XChaCha12 scalar implementations.
+- Managed NH, Poly1305, and XChaCha12 implementations.
 - AES-256 single-block operations through the .NET cryptography API.
 - Published known-answer-vector coverage for NH, Poly1305, XChaCha12, and
   Adiantum.
 
-This release does not include SIMD acceleration. Vectorization and performance
-work are intentionally deferred.
+The current SIMD work targets NH on x86/x64. ARM64 AdvSimd/NEON support is
+deferred; all platforms retain a scalar NH fallback.
+
+---
+
+## Hardware acceleration
+
+NH uses runtime AVX2 detection to process multiple 32-bit message words in
+parallel. It selects AVX-512F, AVX2, or SSE2 when supported, then falls back
+to scalar code. The SIMD implementations use safe .NET intrinsics. Poly1305
+and XChaCha12 remain scalar in this release. ARM64 AdvSimd/NEON is deferred.
+
+Run the console-only microbenchmark with:
+
+```shell
+dotnet run --project test/Benchmark -c Release
+```
+
+It reports scalar and supported x86 NH paths at several input lengths, plus
+end-to-end Adiantum timings. It does not write benchmark results to files.
 
 ---
 
