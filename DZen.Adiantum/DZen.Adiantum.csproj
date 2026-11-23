@@ -10,6 +10,9 @@
     <Title>DZen.Adiantum</Title>
     <Authors>Joe Dluzen</Authors>
     <Description>Pure managed C# implementation of the Adiantum length-preserving encryption construction.</Description>
+    <Copyright>Copyright (c) 2019-2026 Joe Dluzen</Copyright>
+    <PackageProjectUrl>https://github.com/jdluzen/adiantum</PackageProjectUrl>
+    <PackageTags>adiantum;encryption;cryptography;disk-encryption;tweakable;XChaCha12;Poly1305</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryUrl>https://github.com/jdluzen/adiantum</RepositoryUrl>
