@@ -84,6 +84,8 @@ public sealed class Adiantum : IDisposable
 The key must be exactly 32 bytes. Data must contain at least 16 bytes.
 Encryption and decryption operate in place and preserve the input length.
 Tweak bytes are supplied by the caller and are not serialized into the output.
+If processing throws, the data buffer is left unchanged. To provide this
+guarantee, each operation temporarily allocates a buffer the size of the data.
 
 ---
 
@@ -118,11 +120,13 @@ detect modification. Do not treat it as an AEAD or rely on it for integrity;
 use a separate, appropriate integrity/authentication mechanism when required.
 
 This implementation has not received an independent security audit or formal
-verification. In particular, its current Poly1305 scalar implementation uses
-`BigInteger` arithmetic, which is not guaranteed to execute in constant time.
-Do not assume it is suitable for threat models that require constant-time
-secret arithmetic. Published-vector and round-trip tests demonstrate
-interoperability and functional behavior, not a security certification.
+verification. Poly1305 uses fixed-width arithmetic without secret-dependent
+branches, but the managed runtime and JIT do not guarantee constant-time
+execution. Key clearing is best effort; runtime and cryptography-provider copies
+may remain in memory. Do not assume it is suitable for threat models requiring
+constant-time secret arithmetic or guaranteed key erasure. Published-vector
+and round-trip tests demonstrate interoperability and functional behavior, not
+a security certification.
 
 ---
 

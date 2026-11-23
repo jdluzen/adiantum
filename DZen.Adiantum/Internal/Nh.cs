@@ -3,6 +3,7 @@ using System.Buffers.Binary;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
+using System.Security.Cryptography;
 
 namespace DZen.Adiantum.Internal;
 
@@ -84,6 +85,7 @@ internal static class Nh
     private static void HashScalarValidated(ReadOnlySpan<byte> key, ReadOnlySpan<byte> message, Span<byte> output)
     {
         Span<ulong> sums = stackalloc ulong[NumPasses];
+        sums.Clear();
         int keyIndex = 0;
         for (int messageIndex = 0; messageIndex < message.Length; messageIndex += MessageUnit)
         {
@@ -106,6 +108,7 @@ internal static class Nh
 
         for (int i = 0; i < NumPasses; i++)
             BinaryPrimitives.WriteUInt64LittleEndian(output[(i * 8)..], sums[i]);
+        CryptographicOperations.ZeroMemory(MemoryMarshal.AsBytes(sums));
     }
 
     private static void HashAvx2Validated(ReadOnlySpan<byte> key, ReadOnlySpan<byte> message, Span<byte> output)
@@ -149,6 +152,8 @@ internal static class Nh
 
         AddScalarTail(key, message, messageIndex, scalarSums);
         WriteSums(scalarSums, output);
+        CryptographicOperations.ZeroMemory(MemoryMarshal.AsBytes(sums));
+        CryptographicOperations.ZeroMemory(MemoryMarshal.AsBytes(scalarSums));
     }
 
     private static void HashSse2Validated(ReadOnlySpan<byte> key, ReadOnlySpan<byte> message, Span<byte> output)
@@ -186,6 +191,8 @@ internal static class Nh
 
         AddScalarTail(key, message, messageIndex, scalarSums);
         WriteSums(scalarSums, output);
+        CryptographicOperations.ZeroMemory(MemoryMarshal.AsBytes(sums));
+        CryptographicOperations.ZeroMemory(MemoryMarshal.AsBytes(scalarSums));
     }
 
     private static void HashAvx512Validated(ReadOnlySpan<byte> key, ReadOnlySpan<byte> message, Span<byte> output)
@@ -233,6 +240,8 @@ internal static class Nh
 
         AddScalarTail(key, message, messageIndex, scalarSums);
         WriteSums(scalarSums, output);
+        CryptographicOperations.ZeroMemory(MemoryMarshal.AsBytes(sums));
+        CryptographicOperations.ZeroMemory(MemoryMarshal.AsBytes(scalarSums));
     }
 
     private static void AddScalarTail(ReadOnlySpan<byte> key, ReadOnlySpan<byte> message, int messageIndex, Span<ulong> sums)

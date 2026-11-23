@@ -3,7 +3,7 @@ using Newtonsoft.Json;
 using System.IO;
 using System.Linq;
 using Xunit;
-using static Chaos.NaCl.CryptoBytes;
+using static System.Convert;
 
 namespace Poly1305.Test
 {

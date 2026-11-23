@@ -30,32 +30,48 @@ public sealed class Adiantum : IDisposable
     {
         if (key.Length != KeySize) throw new ArgumentException("Adiantum keys must be 32 bytes.", nameof(key));
 
-        key.CopyTo(_streamKey);
         Span<byte> derived = stackalloc byte[32 + 16 + 16 + Nh.KeyBytes];
-        Span<byte> nonce = stackalloc byte[24];
-        nonce.Clear();
-        nonce[0] = 1;
-        XChaCha12.Crypt(_streamKey, nonce, derived);
+        derived.Clear();
+        try
+        {
+            key.CopyTo(_streamKey);
+            Span<byte> nonce = stackalloc byte[24];
+            nonce.Clear();
+            nonce[0] = 1;
+            XChaCha12.Crypt(_streamKey, nonce, derived);
 
-        derived[..32].CopyTo(_aesKey);
-        derived.Slice(32, 16).CopyTo(_headerPolyKey);
-        derived.Slice(48, 16).CopyTo(_messagePolyKey);
-        derived[64..].CopyTo(_nhKey);
+            derived[..32].CopyTo(_aesKey);
+            derived.Slice(32, 16).CopyTo(_headerPolyKey);
+            derived.Slice(48, 16).CopyTo(_messagePolyKey);
+            derived[64..].CopyTo(_nhKey);
 
-        _aes = Aes.Create();
-        _aes.Mode = CipherMode.ECB;
-        _aes.Padding = PaddingMode.None;
-        _aes.KeySize = 256;
-        _aes.Key = _aesKey;
+            _aes = Aes.Create();
+            _aes.Mode = CipherMode.ECB;
+            _aes.Padding = PaddingMode.None;
+            _aes.KeySize = 256;
+            _aes.Key = _aesKey;
+        }
+        catch
+        {
+            ClearKeys();
+            _aes?.Dispose();
+            throw;
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(derived);
+        }
     }
 
     /// <summary>Encrypts data in place using the supplied tweak.</summary>
+    /// <remarks>If processing throws, the data buffer is left unchanged.</remarks>
     public void Encrypt(Span<byte> data, ReadOnlySpan<byte> tweak)
     {
         Crypt(data, tweak, encrypt: true);
     }
 
     /// <summary>Decrypts data in place using the supplied tweak.</summary>
+    /// <remarks>If processing throws, the data buffer is left unchanged.</remarks>
     public void Decrypt(Span<byte> data, ReadOnlySpan<byte> tweak)
     {
         Crypt(data, tweak, encrypt: false);
@@ -68,54 +84,62 @@ public sealed class Adiantum : IDisposable
             ObjectDisposedException.ThrowIf(_disposed, this);
             if (data.Length < MinimumMessageSize) throw new ArgumentException("Adiantum messages must be at least 16 bytes.", nameof(data));
 
-            Span<byte> pl = data[..^16];
-            Span<byte> pr = data[^16..];
-            Span<byte> headerHash = stackalloc byte[16];
-            HashHeader(tweak, pl.Length, headerHash);
-            Span<byte> messageHash = stackalloc byte[16];
-            HashMessage(pl, messageHash);
-
-            Span<byte> pm = stackalloc byte[16];
-            pr.CopyTo(pm);
-            BlockAdd(pm, headerHash);
-            BlockAdd(pm, messageHash);
-
-            Span<byte> cm = stackalloc byte[16];
-            if (encrypt)
+            Span<byte> scratch = stackalloc byte[104];
+            byte[] staging = GC.AllocateUninitializedArray<byte>(data.Length);
+            try
             {
-                _aes!.EncryptEcb(pm, cm, PaddingMode.None);
+                data.CopyTo(staging);
+                Span<byte> work = staging;
+                Span<byte> pl = work[..^16];
+                Span<byte> pr = work[^16..];
+                Span<byte> headerHash = scratch[..16];
+                HashHeader(tweak, pl.Length, headerHash);
+                Span<byte> messageHash = scratch.Slice(16, 16);
+                HashMessage(pl, messageHash);
+
+                Span<byte> pm = scratch.Slice(32, 16);
+                pr.CopyTo(pm);
+                BlockAdd(pm, headerHash);
+                BlockAdd(pm, messageHash);
+
+                Span<byte> cm = scratch.Slice(48, 16);
+                if (encrypt)
+                {
+                    _aes!.EncryptEcb(pm, cm, PaddingMode.None);
+                }
+                else
+                {
+                    pm.CopyTo(cm);
+                    _aes!.DecryptEcb(cm, pm, PaddingMode.None);
+                }
+
+                Span<byte> streamNonce = scratch.Slice(64, 24);
+                cm.CopyTo(streamNonce);
+                streamNonce[16] = 1;
+                streamNonce[17..24].Clear();
+
+                XChaCha12.Crypt(_streamKey, streamNonce, pl);
+                Span<byte> secondMessageHash = scratch.Slice(88, 16);
+                HashMessage(pl, secondMessageHash);
+                if (!encrypt)
+                {
+                    BlockSub(pm, headerHash);
+                    BlockSub(pm, secondMessageHash);
+                    pm.CopyTo(pr);
+                }
+                else
+                {
+                    BlockSub(cm, headerHash);
+                    BlockSub(cm, secondMessageHash);
+                    cm.CopyTo(pr);
+                }
+
+                work.CopyTo(data);
             }
-            else
+            finally
             {
-                pm.CopyTo(cm);
-                _aes!.DecryptEcb(cm, pm, PaddingMode.None);
-            }
-
-            Span<byte> streamNonce = stackalloc byte[24];
-            cm.CopyTo(streamNonce);
-            streamNonce[16] = 1;
-            streamNonce[17..24].Clear();
-
-            XChaCha12.Crypt(_streamKey, streamNonce, pl);
-            Span<byte> cl = pl;
-
-            Span<byte> secondMessageHash = stackalloc byte[16];
-            HashMessage(cl, secondMessageHash);
-            Span<byte> cr = stackalloc byte[16];
-            cm.CopyTo(cr);
-            BlockSub(cr, headerHash);
-            BlockSub(cr, secondMessageHash);
-            if (!encrypt)
-            {
-                Span<byte> prResult = stackalloc byte[16];
-                pm.CopyTo(prResult);
-                BlockSub(prResult, headerHash);
-                BlockSub(prResult, secondMessageHash);
-                prResult.CopyTo(data[^16..]);
-            }
-            else
-            {
-                cr.CopyTo(data[^16..]);
+                CryptographicOperations.ZeroMemory(staging);
+                CryptographicOperations.ZeroMemory(scratch);
             }
         }
     }
@@ -126,47 +150,42 @@ public sealed class Adiantum : IDisposable
         header.Clear();
         BinaryPrimitives.WriteUInt64LittleEndian(header, checked((ulong)bulkLength * 8));
 
-        Span<byte> message = stackalloc byte[16 + tweak.Length];
-        header.CopyTo(message);
-        tweak.CopyTo(message[16..]);
-        InternalPoly1305Core(_headerPolyKey, message, output);
+        using Poly1305.StreamingState poly = new(_headerPolyKey);
+        poly.Update(header);
+        poly.Update(tweak);
+        poly.Finish(output);
     }
 
     private void HashMessage(ReadOnlySpan<byte> message, Span<byte> output)
     {
         Span<byte> nhHash = stackalloc byte[Nh.HashBytes];
-        Span<byte> nhPolyInput = stackalloc byte[Nh.HashBytes];
-        nhPolyInput.Clear();
-        Span<byte> nhAccumulated = stackalloc byte[Nh.HashBytes];
-        nhAccumulated.Clear();
-        Span<byte> polyInput = stackalloc byte[Nh.HashBytes * ((message.Length + Nh.MessageBytes - 1) / Nh.MessageBytes + 1)];
-        polyInput.Clear();
         Span<byte> padded = stackalloc byte[Nh.MessageBytes];
-        int polyOffset = 0;
-
-        int offset = 0;
-        while (offset < message.Length)
+        try
         {
-            int chunkLength = Math.Min(Nh.MessageBytes, message.Length - offset);
-            ReadOnlySpan<byte> chunk = message.Slice(offset, chunkLength);
-            padded.Clear();
-            chunk.CopyTo(padded);
-            int nhLength = chunkLength;
-            if (nhLength < Nh.MessageUnit || (nhLength & (Nh.MessageUnit - 1)) != 0)
-                nhLength = (nhLength + Nh.MessageUnit - 1) & ~(Nh.MessageUnit - 1);
+            using Poly1305.StreamingState poly = new(_messagePolyKey);
+            int offset = 0;
+            while (offset < message.Length)
+            {
+                int chunkLength = Math.Min(Nh.MessageBytes, message.Length - offset);
+                ReadOnlySpan<byte> chunk = message.Slice(offset, chunkLength);
+                padded.Clear();
+                chunk.CopyTo(padded);
+                int nhLength = chunkLength;
+                if (nhLength < Nh.MessageUnit || (nhLength & (Nh.MessageUnit - 1)) != 0)
+                    nhLength = (nhLength + Nh.MessageUnit - 1) & ~(Nh.MessageUnit - 1);
 
-            Nh.Hash(_nhKey, padded[..nhLength], nhHash);
-            nhHash.CopyTo(polyInput[polyOffset..]);
-            polyOffset += Nh.HashBytes;
-            offset += chunkLength;
+                Nh.Hash(_nhKey, padded[..nhLength], nhHash);
+                poly.Update(nhHash);
+                offset += chunkLength;
+            }
+
+            poly.Finish(output);
         }
-
-        InternalPoly1305Core(_messagePolyKey, polyInput[..polyOffset], output);
-    }
-
-    private static void InternalPoly1305Core(ReadOnlySpan<byte> key, ReadOnlySpan<byte> message, Span<byte> output)
-    {
-        Poly1305.Process(key, message, output);
+        finally
+        {
+            CryptographicOperations.ZeroMemory(nhHash);
+            CryptographicOperations.ZeroMemory(padded);
+        }
     }
 
     private static void BlockAdd(Span<byte> left, ReadOnlySpan<byte> right)
@@ -202,13 +221,18 @@ public sealed class Adiantum : IDisposable
         {
             if (_disposed) return;
             _disposed = true;
-            Array.Clear(_streamKey);
-            Array.Clear(_aesKey);
-            Array.Clear(_headerPolyKey);
-            Array.Clear(_messagePolyKey);
-            Array.Clear(_nhKey);
+            ClearKeys();
             _aes?.Dispose();
             _aes = null;
         }
+    }
+
+    private void ClearKeys()
+    {
+        CryptographicOperations.ZeroMemory(_streamKey);
+        CryptographicOperations.ZeroMemory(_aesKey);
+        CryptographicOperations.ZeroMemory(_headerPolyKey);
+        CryptographicOperations.ZeroMemory(_messagePolyKey);
+        CryptographicOperations.ZeroMemory(_nhKey);
     }
 }

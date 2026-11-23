@@ -2,7 +2,7 @@ using FluentAssertions;
 using Newtonsoft.Json;
 using System.IO;
 using Xunit;
-using static Chaos.NaCl.CryptoBytes;
+using static System.Convert;
 
 namespace NH.Test
 {

@@ -1,5 +1,7 @@
 using System;
 using System.Buffers.Binary;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 
 namespace DZen.Adiantum.Internal;
 
@@ -37,6 +39,7 @@ internal static class XChaCha12
 
         for (int i = 0; i < 4; i++) BinaryPrimitives.WriteUInt32LittleEndian(output[(i * 4)..], state[i]);
         for (int i = 0; i < 4; i++) BinaryPrimitives.WriteUInt32LittleEndian(output[((4 + i) * 4)..], state[12 + i]);
+        CryptographicOperations.ZeroMemory(MemoryMarshal.AsBytes(state));
     }
 
     private static void ChaChaBlock(ReadOnlySpan<byte> subkey, ulong counter, ReadOnlySpan<byte> nonce8, Span<byte> output)
@@ -65,6 +68,8 @@ internal static class XChaCha12
 
         for (int i = 0; i < 16; i++)
             BinaryPrimitives.WriteUInt32LittleEndian(output[(i * 4)..], state[i] + initial[i]);
+        CryptographicOperations.ZeroMemory(MemoryMarshal.AsBytes(state));
+        CryptographicOperations.ZeroMemory(MemoryMarshal.AsBytes(initial));
     }
 
     internal static void Crypt(ReadOnlySpan<byte> key, ReadOnlySpan<byte> nonce24, Span<byte> destination, ulong startingBlock = 0)
@@ -73,20 +78,27 @@ internal static class XChaCha12
         if (nonce24.Length != 24) throw new ArgumentException("An XChaCha12 nonce must be 24 bytes.", nameof(nonce24));
 
         Span<byte> subkey = stackalloc byte[32];
-        HChaCha(key, nonce24[..16], subkey);
-
-        ulong counter = startingBlock;
-        ReadOnlySpan<byte> nonce8 = nonce24[16..24];
         Span<byte> block = stackalloc byte[64];
-        int offset = 0;
-        while (offset < destination.Length)
+        try
         {
-            ChaChaBlock(subkey, counter, nonce8, block);
-            int length = Math.Min(64, destination.Length - offset);
-            for (int i = 0; i < length; i++)
-                destination[offset + i] ^= block[i];
-            offset += length;
-            counter++;
+            HChaCha(key, nonce24[..16], subkey);
+            ulong counter = startingBlock;
+            ReadOnlySpan<byte> nonce8 = nonce24[16..24];
+            int offset = 0;
+            while (offset < destination.Length)
+            {
+                ChaChaBlock(subkey, counter, nonce8, block);
+                int length = Math.Min(64, destination.Length - offset);
+                for (int i = 0; i < length; i++)
+                    destination[offset + i] ^= block[i];
+                offset += length;
+                counter++;
+            }
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(subkey);
+            CryptographicOperations.ZeroMemory(block);
         }
     }
 }

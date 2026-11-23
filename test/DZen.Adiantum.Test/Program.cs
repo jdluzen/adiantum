@@ -12,8 +12,10 @@ internal static class Program
         TestNh();
         string[] simdPaths = TestNhVectorized();
         TestPoly1305();
+        Poly1305FocusedTests.Run();
         TestXChaCha();
         TestAdiantum();
+        TestLargeInputs();
         string simdResult = simdPaths.Length == 0
             ? "no x86 SIMD paths were available"
             : $"NH SIMD comparisons passed for: {string.Join(", ", simdPaths)}";
@@ -154,5 +156,37 @@ internal static class Program
             if (!encrypted.AsSpan().SequenceEqual(plaintext))
                 throw new InvalidOperationException("Adiantum round trip failed.");
         }
+    }
+
+    private static void TestLargeInputs()
+    {
+        byte[] key = new byte[32];
+        byte[] tweak = new byte[256 * 1024];
+        byte[] plaintext = new byte[1024 * 1024 + 17];
+        Random random = new(0x4154);
+        random.NextBytes(key);
+        random.NextBytes(tweak);
+        random.NextBytes(plaintext);
+        byte[] data = (byte[])plaintext.Clone();
+        Exception? error = null;
+        System.Threading.Thread thread = new(() =>
+        {
+            try
+            {
+                using DZen.Adiantum.Adiantum cipher = new(key);
+                cipher.Encrypt(data, tweak);
+                cipher.Decrypt(data, tweak);
+                if (!data.AsSpan().SequenceEqual(plaintext))
+                    throw new InvalidOperationException("Large-input Adiantum round trip failed.");
+            }
+            catch (Exception ex)
+            {
+                error = ex;
+            }
+        }, 128 * 1024);
+        thread.Start();
+        thread.Join();
+        if (error is not null)
+            throw new InvalidOperationException("Large-input Adiantum test failed.", error);
     }
 }
