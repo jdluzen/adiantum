@@ -49,6 +49,36 @@ dotnet run --project test/Benchmark -c Release
 It reports scalar and supported x86 NH paths at several input lengths, plus
 end-to-end Adiantum timings. It does not write benchmark results to files.
 
+### Example results
+
+Measured on an AMD Ryzen 9 9950X3D, Windows x64, and .NET 10.0.12, using a
+Release build of the library at commit `64f3f44`. These are single-threaded,
+in-process Stopwatch measurements, not BenchmarkDotNet results. Each value is
+the median of five samples of at least 250 ms, after a 300 ms warm-up. Two
+independent runs produced similar results; the second run is shown below.
+
+| Adiantum data size | Average time per operation | Throughput |
+| --- | ---: | ---: |
+| 512 B | 3.08 us | 158.3 MiB/s |
+| 4 KiB | 18.47 us | 211.5 MiB/s |
+| 16 KiB | 71.10 us | 219.8 MiB/s |
+
+Each measurement repeatedly encrypts and decrypts the same buffer with a
+reused cipher and a 16-byte tweak. Time per operation is half the pair's
+elapsed time; throughput is calculated from that average. It includes the
+library's temporary buffer allocation and clearing, but excludes cipher
+construction.
+
+| NH message size | Scalar | SSE2 | AVX2 | AVX-512F |
+| --- | ---: | ---: | ---: | ---: |
+| 64 B | 40.4 ns | 32.2 ns | 29.9 ns | 29.5 ns |
+| 256 B | 128.3 ns | 63.5 ns | 45.0 ns | 39.6 ns |
+| 512 B | 245.5 ns | 109.8 ns | 65.9 ns | 52.5 ns |
+| 1024 B | 481.6 ns | 206.9 ns | 106.9 ns | 79.2 ns |
+
+NH timings call each implementation directly and are not end-to-end encryption
+results. Performance varies with hardware, runtime, input size, and system load.
+
 ---
 
 ## Installation

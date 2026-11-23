@@ -13,9 +13,10 @@ internal static class Program
 
     private static void Main()
     {
-        Console.WriteLine($"NH/Adiantum microbenchmark; architecture={RuntimeInformation.ProcessArchitecture}; " +
+        Console.WriteLine($"NH/Adiantum microbenchmark; {RuntimeInformation.FrameworkDescription}; " +
+                          $"architecture={RuntimeInformation.ProcessArchitecture}; " +
                           $"SSE2={Sse2.IsSupported}, AVX2={Avx2.IsSupported}, AVX-512F={Avx512F.IsSupported}");
-        Console.WriteLine("Console output only; warm-up plus median of three 150 ms samples. Timings are machine/load dependent.");
+        Console.WriteLine("Console output only; 300 ms warm-up plus median of five 250 ms samples. Timings are machine/load dependent.");
 
         byte[] key = new byte[Nh.KeyBytes];
         byte[] message = new byte[Nh.MessageBytes];
@@ -48,7 +49,9 @@ internal static class Program
                 cipher.Encrypt(data, tweak);
                 cipher.Decrypt(data, tweak);
             });
-            Console.WriteLine($"Adiantum {length,5} B: {pairedNs / 2:F1} ns/encrypt-or-decrypt (paired)");
+            double operationNs = pairedNs / 2;
+            double throughput = length * 1_000_000_000.0 / operationNs / (1024 * 1024);
+            Console.WriteLine($"Adiantum {length,5} B: {operationNs:F1} ns/op, {throughput:F1} MiB/s (paired average)");
         }
     }
 
@@ -67,16 +70,20 @@ internal static class Program
 
     private static double MeasureNanoseconds(Action action)
     {
-        for (int i = 0; i < 256; i++)
-            action();
-
         const int batchSize = 128;
-        double[] samples = new double[3];
+        Stopwatch warmup = Stopwatch.StartNew();
+        while (warmup.ElapsedMilliseconds < 300)
+        {
+            for (int i = 0; i < batchSize; i++)
+                action();
+        }
+
+        double[] samples = new double[5];
         for (int sample = 0; sample < samples.Length; sample++)
         {
             Stopwatch stopwatch = Stopwatch.StartNew();
             long iterations = 0;
-            while (stopwatch.ElapsedMilliseconds < 150)
+            while (stopwatch.ElapsedMilliseconds < 250)
             {
                 for (int i = 0; i < batchSize; i++)
                     action();
